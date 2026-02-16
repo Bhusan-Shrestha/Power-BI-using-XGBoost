@@ -1,0 +1,12 @@
+# Git ignore file for Python projects
+
+# Python environment folders
+env/
+venv/
+
+# Environment variables
+.env
+.venv
+
+# H5 model files
+*.h5
