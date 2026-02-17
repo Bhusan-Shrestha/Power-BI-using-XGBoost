@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # ================= CONFIG =================
-DATA_PATH = "monthly_sales.xlsx"
+DATA_PATH = "./Sample data.xlsx"
 MODEL_DIR = "./models"
 OUTPUT_DIR = "./outputs"
 TARGETS = ["Sales", "Profit"]
@@ -19,8 +19,8 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ================= LOAD =================
 df = pd.read_excel(DATA_PATH)
-df['Date'] = pd.to_datetime(df['Date'])
-df = df.sort_values(['Product', 'Place', 'Date'])
+df['Date'] = pd.to_datetime(df['Year'].astype(str) + '-' + df['Month Number'].astype(str).str.zfill(2) + '-01')
+df = df.sort_values(['Product', 'Country', 'Date'])
 
 # ================= FEATURE ENGINEERING =================
 
@@ -33,20 +33,23 @@ df['Month_cos'] = np.cos(2*np.pi*df['Month']/12)
 
 # Lag features
 for lag in [1,2,3]:
-    df[f'Sales_lag{lag}'] = df.groupby(['Product','Place'])['Sales'].shift(lag)
-    df[f'Profit_lag{lag}'] = df.groupby(['Product','Place'])['Profit'].shift(lag)
+    df[f'Sales_lag{lag}'] = df.groupby(['Product','Country'])['Sales'].shift(lag)
+    df[f'Profit_lag{lag}'] = df.groupby(['Product','Country'])['Profit'].shift(lag)
 
 # Rolling mean
-df['Sales_roll3'] = df.groupby(['Product','Place'])['Sales'].rolling(3).mean().reset_index(0,drop=True)
-df['Profit_roll3'] = df.groupby(['Product','Place'])['Profit'].rolling(3).mean().reset_index(0,drop=True)
+df['Sales_roll3'] = df.groupby(['Product','Country'])['Sales'].transform(lambda x: x.rolling(3, min_periods=1).mean())
+df['Profit_roll3'] = df.groupby(['Product','Country'])['Profit'].transform(lambda x: x.rolling(3, min_periods=1).mean())
 
 df = df.dropna()
 
 # One-hot encoding (safe categorical handling)
-df = pd.get_dummies(df, columns=['Product','Place'], drop_first=True)
+df = pd.get_dummies(df, columns=['Product','Country','Segment','Discount Band'], drop_first=True)
+
+# Drop unnecessary columns
+df = df.drop(['Date', 'Month Name', 'Month Number'], axis=1, errors='ignore')
 
 # ================= FEATURES =================
-feature_cols = [col for col in df.columns if col not in ['Date','Sales','Profit']]
+feature_cols = [col for col in df.columns if col not in ['Sales','Profit']]
 
 # ================= TRAIN FUNCTION =================
 
