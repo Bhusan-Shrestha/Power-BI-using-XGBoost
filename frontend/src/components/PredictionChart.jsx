@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
-  ComposedChart,
+  BarChart,
   CartesianGrid,
   Legend,
   ResponsiveContainer,
@@ -9,16 +9,15 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { fetchPredictions, parseApiError, triggerPrediction } from "../services/api";
+import { fetchPredictions, parseApiError, triggerPredictionFromFile } from "../services/api";
 
 export default function PredictionChart() {
-  const now = new Date();
-  const [predictYear, setPredictYear] = useState(now.getFullYear());
-  const [predictMonth, setPredictMonth] = useState(now.getMonth() + 1);
   const [predictions, setPredictions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [message, setMessage] = useState("");
+  const [file, setFile] = useState(null);
+  const [downloadUrl, setDownloadUrl] = useState("");
 
   const loadPredictions = async () => {
     const response = await fetchPredictions();
@@ -44,26 +43,38 @@ export default function PredictionChart() {
   const chartData = useMemo(
     () =>
       predictions.map((p) => ({
-        month: p.month,
-        predicted_sales: Number(p.predicted_sales),
-        predicted_profit: Number(p.predicted_profit),
+        product_id: p.product_id,
+        predicted_unit_sales: Number(p.predicted_unit_sales ?? 0),
       })),
     [predictions]
   );
 
   const handleGenerate = async () => {
-    if (predictMonth < 1 || predictMonth > 12) {
-      setMessage("Month must be between 1 and 12.");
+    if (!file) {
+      setMessage("Please choose an input file first.");
       return;
     }
+
     setLoading(true);
     setMessage("");
     try {
-      const response = await triggerPrediction({
-        predict_year: Number(predictYear),
-        predict_month: Number(predictMonth),
-      });
-      await loadPredictions();
+      const response = await triggerPredictionFromFile(file);
+
+      const responsePredictions = (response.data?.predictions || []).map((item) => ({
+        product_id: item.product,
+        month: response.data?.month,
+        predicted_sales: Number(item.predicted_sales || 0),
+        predicted_unit_sales: Number(item.predicted_units || 0),
+      }));
+
+      const outputFileName = response.data?.output_file || "";
+      const relativeDownloadUrl =
+        response.data?.download_url ||
+        (outputFileName ? `/download/${encodeURIComponent(outputFileName)}` : "");
+      const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      setDownloadUrl(relativeDownloadUrl ? `${apiBase}${relativeDownloadUrl}` : "");
+
+      setPredictions(responsePredictions);
       setMessage(response.data?.message || "Predictions generated successfully.");
     } catch (error) {
       setMessage(parseApiError(error, "Prediction generation failed."));
@@ -74,35 +85,31 @@ export default function PredictionChart() {
 
   return (
     <section className="card">
-      <h2>Future Sales & Profit Predictions</h2>
+      <h2>Upload this month's sales data</h2>
       <p className="muted-text">
-        Generates one-month-ahead predictions for each product based on latest sales records.
+        Upload the latest sales file to generate product-wise predictions.
       </p>
-      <div className="prediction-controls">
-        <label>
-          Year
-          <input
-            type="number"
-            min="2000"
-            value={predictYear}
-            onChange={(event) => setPredictYear(Number(event.target.value))}
-          />
-        </label>
-        <label>
-          Month
-          <input
-            type="number"
-            min="1"
-            max="12"
-            value={predictMonth}
-            onChange={(event) => setPredictMonth(Number(event.target.value))}
-          />
-        </label>
-      </div>
+      <label>
+        Input File
+        <input
+          type="file"
+          accept=".xlsx,.xls"
+          onChange={(event) => setFile(event.target.files?.[0] || null)}
+        />
+      </label>
       <button onClick={handleGenerate} disabled={loading}>
         {loading ? "Predicting..." : "Generate Predictions"}
       </button>
       {message ? <p>{message}</p> : null}
+      <p>
+        {downloadUrl ? (
+          <a href={downloadUrl} target="_blank" rel="noreferrer">
+            Download Predicted File
+          </a>
+        ) : (
+          <span className="muted-text">Generate predictions to enable file download.</span>
+        )}
+      </p>
       <div className="chart-wrap">
         {loadingInitial ? (
           <p>Loading predictions...</p>
@@ -110,15 +117,20 @@ export default function PredictionChart() {
           <p>No predictions found. Generate predictions first.</p>
         ) : (
           <ResponsiveContainer>
-            <ComposedChart data={chartData}>
+            <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis />
+              <XAxis
+                dataKey="product_id"
+                interval={0}
+                angle={-25}
+                textAnchor="end"
+                height={70}
+              />
+              <YAxis label={{ value: "Unit Sales", angle: -90, position: "insideLeft" }} />
               <Tooltip />
               <Legend />
-              <Bar dataKey="predicted_sales" fill="#2a9d8f" />
-              <Bar dataKey="predicted_profit" fill="#e9c46a" />
-            </ComposedChart>
+              <Bar dataKey="predicted_unit_sales" fill="#2a9d8f" name="predicted_unit_sales" />
+            </BarChart>
           </ResponsiveContainer>
         )}
       </div>
@@ -129,8 +141,8 @@ export default function PredictionChart() {
               <tr>
                 <th>Product ID</th>
                 <th>Month</th>
+                <th>Predicted Unit Sales</th>
                 <th>Predicted Sales</th>
-                <th>Predicted Profit</th>
               </tr>
             </thead>
             <tbody>
@@ -138,8 +150,8 @@ export default function PredictionChart() {
                 <tr key={`${row.product_id}-${row.month}`}>
                   <td>{row.product_id}</td>
                   <td>{row.month}</td>
+                  <td>{Number(row.predicted_unit_sales || 0).toFixed(0)}</td>
                   <td>{Number(row.predicted_sales).toFixed(2)}</td>
-                  <td>{Number(row.predicted_profit).toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
