@@ -5,7 +5,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <h1>Predict Sales</h1>
+        <h1>Sales Prediction</h1>
         <nav>
           <NavLink to="/" className={({ isActive }) => (isActive ? "active-nav" : "")}>Predict</NavLink>
         </nav>
