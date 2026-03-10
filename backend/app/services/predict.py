@@ -26,10 +26,6 @@ def load_model_and_meta():
 
 
 def merge_into_master(df_new: pd.DataFrame) -> tuple:
-    """
-    Merge new month data into data_sets.xlsx.
-    Returns (updated_df_raw, was_merged: bool)
-    """
     df_master = pd.read_excel(DATA_PATH, sheet_name="Monthly_Data")
     df_master["Discount Band"] = df_master["Discount Band"].fillna("None")
 
@@ -61,11 +57,6 @@ def merge_into_master(df_new: pd.DataFrame) -> tuple:
 
 
 def predict_next_month(df_raw: pd.DataFrame, model, meta: dict) -> dict:
-    """
-    Core prediction function.
-    Reads df_raw, detects the latest month, predicts the next month.
-    Returns a result dict with predictions and saves output Excel.
-    """
     FEATURE_COLS  = meta["feature_cols"]
     PROD_MAP      = meta["prod_map"]
     SEG_ENC       = meta["seg_enc"]
@@ -204,12 +195,6 @@ def predict_next_month(df_raw: pd.DataFrame, model, meta: dict) -> dict:
 
 
 def run_from_file(new_data_file: str) -> dict:
-    """
-    Full pipeline:
-    1. Read the uploaded file
-    2. Merge into data_sets.xlsx
-    3. Predict next month
-    """
     if not os.path.exists(new_data_file):
         raise FileNotFoundError(f"File not found: {new_data_file}")
 
@@ -234,9 +219,6 @@ def run_from_file(new_data_file: str) -> dict:
 
 
 def run_from_latest() -> dict:
-    """
-    Predict next month using data already in data_sets.xlsx — no file upload needed.
-    """
     model, meta = load_model_and_meta()
     df_raw = pd.read_excel(DATA_PATH, sheet_name="Monthly_Data")
     df_raw["Discount Band"] = df_raw["Discount Band"].fillna("None")

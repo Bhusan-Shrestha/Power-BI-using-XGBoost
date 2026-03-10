@@ -80,9 +80,6 @@ class PredictionService:
         generated_name = result["output_file"]
         output_path = self.output_dir / generated_name
 
-        # Support both generation locations during transition:
-        # - new flow: output_data
-        # - older flow: ml/outputs
         source_candidates = [
             output_path,
             self.ml_output_dir / generated_name,
