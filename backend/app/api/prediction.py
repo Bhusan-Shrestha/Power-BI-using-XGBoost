@@ -2,12 +2,24 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse
 
 from ..services.prediction_service import PredictionService
 
 router = APIRouter()
 service = PredictionService()
+
+
+class SalesEntryPayload(BaseModel):
+    product: str = Field(..., min_length=1)
+    segment: str = Field(..., min_length=1)
+    discount_band: str = Field(default="None")
+    units_sold: float = Field(..., ge=0)
+    manufacturing_price: float = Field(..., ge=0)
+    sale_price: float = Field(..., ge=0)
+    month_number: int = Field(..., ge=1, le=12)
+    year: int = Field(..., ge=2000, le=2100)
 
 
 @router.post("/predict")
@@ -61,3 +73,23 @@ def download_prediction_file(filename: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=filename,
     )
+
+
+@router.post("/sales/entry")
+def add_sales_entry(payload: SalesEntryPayload):
+    try:
+        return service.add_sales_entry(payload.model_dump())
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to add sales entry: {exc}") from exc
+
+
+@router.get("/analytics/overview")
+def analytics_overview():
+    try:
+        return service.get_dashboard_overview()
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load analytics overview: {exc}") from exc

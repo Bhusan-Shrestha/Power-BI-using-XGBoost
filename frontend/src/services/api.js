@@ -23,6 +23,20 @@ export const triggerPredictionFromFile = (file) => {
   });
 };
 
+export const triggerPredictionFromLatest = () => api.post("/predict", {});
+
+export const uploadSalesFile = (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return api.post("/upload", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+};
+
+export const addSalesEntry = (payload) => api.post("/sales/entry", payload);
+
 export const fetchPredictions = () => api.get("/predictions");
+
+export const fetchAnalyticsOverview = () => api.get("/analytics/overview");
 
 export default api;
