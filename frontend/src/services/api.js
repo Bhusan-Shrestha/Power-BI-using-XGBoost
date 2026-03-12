@@ -37,6 +37,11 @@ export const addSalesEntry = (payload) => api.post("/sales/entry", payload);
 
 export const fetchPredictions = () => api.get("/predictions");
 
-export const fetchAnalyticsOverview = () => api.get("/analytics/overview");
+export const fetchLatestPredictionFile = () => api.get("/predictions/latest-file");
+
+export const fetchAnalyticsOverview = () =>
+  api.get("/analytics/overview", {
+    params: { _ts: Date.now() },
+  });
 
 export default api;

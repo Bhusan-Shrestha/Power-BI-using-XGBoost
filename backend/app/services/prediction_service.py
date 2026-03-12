@@ -53,12 +53,57 @@ class PredictionService:
         destination.write_bytes(content)
 
         frame = pd.read_excel(destination)
+        if "Discount Band" in frame.columns:
+            frame["Discount Band"] = frame["Discount Band"].fillna("None")
+
+        missing = [column for column in self.required_columns if column not in frame.columns]
+        if missing:
+            raise ValueError(f"File missing columns: {missing}")
+
+        try:
+            master = self._load_master_data()
+        except FileNotFoundError:
+            master = pd.DataFrame(columns=frame.columns)
+
+        for column in master.columns:
+            if column not in frame.columns:
+                frame[column] = None
+        for column in frame.columns:
+            if column not in master.columns:
+                master[column] = None
+
+        frame_aligned = frame.reindex(columns=master.columns)
+
+        key_columns = ["Product", "Year", "Month Number"]
+        existing_keys = {
+            tuple(row)
+            for row in master[key_columns].astype(str).itertuples(index=False, name=None)
+        }
+        incoming_keys = {
+            tuple(row)
+            for row in frame_aligned[key_columns].astype(str).itertuples(index=False, name=None)
+        }
+
+        combined = pd.concat([master, frame_aligned], ignore_index=True)
+        combined = combined.drop_duplicates(subset=key_columns, keep="last").reset_index(drop=True)
+        self._save_master_data(combined)
+
+        inserted_keys = incoming_keys - existing_keys
+        updated_keys = incoming_keys & existing_keys
+        was_merged = bool(inserted_keys or updated_keys)
         products_upserted = int(frame["Product"].nunique()) if "Product" in frame.columns else 0
+
+        latest_year = int(frame["Year"].max())
+        latest_month = int(frame[frame["Year"] == latest_year]["Month Number"].max())
+        latest_month_label = pd.Timestamp(f"{latest_year}-{latest_month:02d}-01").strftime("%B %Y")
 
         return {
             "path": destination,
-            "rows": int(len(frame)),
+            "rows": int(len(inserted_keys)),
             "products": products_upserted,
+            "merged": was_merged,
+            "updated": int(len(updated_keys)),
+            "latest_month": latest_month_label,
         }
 
     def _latest_input_file(self) -> Path:
@@ -127,6 +172,22 @@ class PredictionService:
         except Exception:
             return []
 
+    def get_latest_prediction_output_file(self) -> Path | None:
+        preferred = sorted(
+            self.output_dir.glob("predicted sales-report-*.xlsx"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+        if preferred:
+            return preferred[0]
+
+        fallback = sorted(
+            self.output_dir.glob("*.xlsx"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+        return fallback[0] if fallback else None
+
     def _load_master_data(self) -> pd.DataFrame:
         if not self.master_data_path.exists():
             raise FileNotFoundError(
@@ -139,12 +200,15 @@ class PredictionService:
         return frame
 
     def _save_master_data(self, frame: pd.DataFrame) -> None:
-        with pd.ExcelWriter(
-            self.master_data_path,
-            engine="openpyxl",
-            mode="a",
-            if_sheet_exists="replace",
-        ) as writer:
+        writer_mode = "a" if self.master_data_path.exists() else "w"
+        writer_kwargs = {
+            "engine": "openpyxl",
+            "mode": writer_mode,
+        }
+        if writer_mode == "a":
+            writer_kwargs["if_sheet_exists"] = "replace"
+
+        with pd.ExcelWriter(self.master_data_path, **writer_kwargs) as writer:
             frame.to_excel(writer, sheet_name="Monthly_Data", index=False)
 
     def add_sales_entry(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -277,6 +341,13 @@ class PredictionService:
             for _, row in monthly_summary.tail(12).iterrows()
         ]
 
+        last_12_months = (
+            monthly_summary.tail(12)["month_date"].drop_duplicates().tolist()
+            if not monthly_summary.empty
+            else []
+        )
+        frame_12m = frame[frame["month_date"].isin(last_12_months)].copy()
+
         segment_performance = [
             {
                 "segment": str(row["Segment"]),
@@ -285,7 +356,7 @@ class PredictionService:
                 "units_sold": round(float(row["units_sold"]), 0),
             }
             for _, row in (
-                frame.groupby("Segment", as_index=False)
+                frame_12m.groupby("Segment", as_index=False)
                 .agg(sales=("Sales", "sum"), profit=("Profit", "sum"), units_sold=("Units Sold", "sum"))
                 .sort_values("sales", ascending=False)
             ).iterrows()
@@ -298,7 +369,7 @@ class PredictionService:
                 "profit": round(float(row["profit"]), 2),
             }
             for _, row in (
-                frame.groupby("Discount Band", as_index=False)
+                frame_12m.groupby("Discount Band", as_index=False)
                 .agg(sales=("Sales", "sum"), profit=("Profit", "sum"))
                 .sort_values("sales", ascending=False)
             ).iterrows()
@@ -312,16 +383,25 @@ class PredictionService:
                 "units_sold": round(float(row["units_sold"]), 0),
             }
             for _, row in (
-                frame.groupby("Product", as_index=False)
+                frame_12m.groupby("Product", as_index=False)
                 .agg(sales=("Sales", "sum"), profit=("Profit", "sum"), units_sold=("Units Sold", "sum"))
                 .sort_values("sales", ascending=False)
                 .head(10)
             ).iterrows()
         ]
 
+        latest_two_months = (
+            frame_12m[["month_date"]]
+            .dropna()
+            .drop_duplicates()
+            .sort_values("month_date", ascending=False)
+            .head(2)["month_date"]
+            .tolist()
+        )
+
         recent_rows_frame = (
-            frame.sort_values(["month_date", "Product"], ascending=[False, True])
-            .head(20)
+            frame_12m[frame_12m["month_date"].isin(latest_two_months)]
+            .sort_values(["month_date", "Product"], ascending=[False, True])
             .copy()
         )
         recent_rows = [
@@ -344,17 +424,17 @@ class PredictionService:
         )
 
         latest_month = monthly_summary.iloc[-1]["month_date"] if not monthly_summary.empty else None
-        total_sales = float(frame["Sales"].sum())
-        total_profit = float(frame["Profit"].sum())
-        total_units = float(frame["Units Sold"].sum())
+        total_sales = float(frame_12m["Sales"].sum())
+        total_profit = float(frame_12m["Profit"].sum())
+        total_units = float(frame_12m["Units Sold"].sum())
 
         kpis = {
             "total_sales": round(total_sales, 2),
             "total_profit": round(total_profit, 2),
             "total_units": round(total_units, 0),
             "avg_profit_margin": round((total_profit / total_sales * 100) if total_sales else 0, 2),
-            "products_count": int(frame["Product"].nunique()) if "Product" in frame.columns else 0,
-            "segments_count": int(frame["Segment"].nunique()) if "Segment" in frame.columns else 0,
+            "products_count": int(frame_12m["Product"].nunique()) if "Product" in frame_12m.columns else 0,
+            "segments_count": int(frame_12m["Segment"].nunique()) if "Segment" in frame_12m.columns else 0,
             "latest_month": latest_month.strftime("%B %Y") if latest_month is not None else "-",
             "predicted_sales_total": prediction_total,
         }

@@ -5,6 +5,9 @@ import warnings
 import numpy as np
 import pandas as pd
 import joblib
+from openpyxl import load_workbook
+from openpyxl.chart import PieChart, Reference
+from openpyxl.chart.label import DataLabelList
 
 warnings.filterwarnings("ignore")
 
@@ -13,6 +16,20 @@ DATA_PATH  = "ml/data_sets.xlsx"
 MODEL_PATH = "ml/models/sales_model.pkl"
 META_PATH  = "ml/models/metadata.pkl"
 OUTPUT_DIR = "output_data"
+ENGLISH_SEASON_BY_MONTH = {
+    1: "Winter",
+    2: "Winter",
+    3: "Spring",
+    4: "Spring",
+    5: "Summer",
+    6: "Summer",
+    7: "Monsoon",
+    8: "Monsoon",
+    9: "Autumn",
+    10: "Autumn",
+    11: "Pre-Winter",
+    12: "Pre-Winter",
+}
 
 
 def load_model_and_meta():
@@ -64,8 +81,8 @@ def predict_next_month(df_raw: pd.DataFrame, model, meta: dict) -> dict:
     PRODUCT_SPECS = meta["product_specs"]
     PRODUCT_DISC  = meta["product_disc"]
     BASE_YEAR     = meta["base_year"]
-    SEASON_NAME   = meta["season_name"]
-    SEASON_ENC    = meta["season_enc"]
+    SEASON_NAME_RAW = meta["season_name"]
+    SEASON_ENC_RAW  = meta["season_enc"]
     ALL_PRODUCTS  = meta["all_products"]
     DISC_ENC      = meta["disc_enc"]
     DISC_RATE     = meta["disc_rate"]
@@ -77,9 +94,10 @@ def predict_next_month(df_raw: pd.DataFrame, model, meta: dict) -> dict:
     next_date     = latest_date + pd.DateOffset(months=1)
     predict_year  = int(next_date.year)
     predict_month = int(next_date.month)
+    season_label  = ENGLISH_SEASON_BY_MONTH.get(predict_month, "Unknown")
 
     print(f"Latest data : {latest_date.strftime('%B %Y')}")
-    print(f"Predicting  : {next_date.strftime('%B %Y')}  ({SEASON_NAME[predict_month]})")
+    print(f"Predicting  : {next_date.strftime('%B %Y')}  ({season_label})")
 
     def predict_one_product(product: str) -> dict:
         hist = df_raw[df_raw["Product"] == product].copy()
@@ -129,7 +147,7 @@ def predict_next_month(df_raw: pd.DataFrame, model, meta: dict) -> dict:
             "Month_cos":           float(np.cos(2 * np.pi * predict_month / 12)),
             "Qtr_sin":             float(np.sin(2 * np.pi * quarter / 4)),
             "Qtr_cos":             float(np.cos(2 * np.pi * quarter / 4)),
-            "Season_enc":          SEASON_ENC[SEASON_NAME[predict_month]],
+            "Season_enc":          SEASON_ENC_RAW.get(SEASON_NAME_RAW.get(predict_month), 0),
             "Year_trend":          predict_year - BASE_YEAR,
             "Segment_enc":         SEG_ENC.get(seg, 0),
             "Product_enc":         PROD_MAP.get(product, 0),
@@ -151,13 +169,15 @@ def predict_next_month(df_raw: pd.DataFrame, model, meta: dict) -> dict:
 
         X = pd.DataFrame([features])[FEATURE_COLS]
         predicted = round(float(model.predict(X)[0]), 2)
+        predicted_profit = round(float(predicted - (units * mfg)), 2)
 
         return {
             "product":          product,
             "segment":          seg,
-            "season":           SEASON_NAME[predict_month],
+            "season":           season_label,
             "predicted_units":  round(float(units), 0),
             "predicted_sales":  predicted,
+            "predicted_profit": predicted_profit,
         }
 
     # Predict all active products for next month
@@ -171,13 +191,50 @@ def predict_next_month(df_raw: pd.DataFrame, model, meta: dict) -> dict:
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     out_filename = f"predicted sales-report-{next_date.strftime('%Y-%m')}.xlsx"
     out_path     = os.path.join(OUTPUT_DIR, out_filename)
-    pd.DataFrame(results).rename(columns={
+    prediction_frame = pd.DataFrame(results).rename(columns={
         "product":         "Product",
         "segment":         "Segment",
         "season":          "Season",
         "predicted_units": "Predicted_Units",
         "predicted_sales": "Predicted_Sales",
-    })[["Product", "Segment", "Season", "Predicted_Units", "Predicted_Sales"]].to_excel(out_path, index=False)
+        "predicted_profit": "Predicted_Profit",
+    })[["Product", "Segment", "Season", "Predicted_Units", "Predicted_Sales", "Predicted_Profit"]]
+    prediction_frame.to_excel(out_path, sheet_name="Predictions", index=False)
+
+    if not prediction_frame.empty:
+        workbook = load_workbook(out_path)
+        prediction_sheet = workbook["Predictions"]
+        charts_sheet = workbook.create_sheet("Charts")
+
+        def add_pie_chart(title: str, value_column: int, anchor: str) -> None:
+            labels = Reference(
+                prediction_sheet,
+                min_col=1,
+                min_row=2,
+                max_row=len(prediction_frame) + 1,
+            )
+            data = Reference(
+                prediction_sheet,
+                min_col=value_column,
+                min_row=1,
+                max_row=len(prediction_frame) + 1,
+            )
+            chart = PieChart()
+            chart.title = title
+            chart.add_data(data, titles_from_data=True)
+            chart.set_categories(labels)
+            chart.height = 7
+            chart.width = 9
+            chart.dataLabels = DataLabelList()
+            chart.dataLabels.showPercent = True
+            chart.dataLabels.showLeaderLines = True
+            charts_sheet.add_chart(chart, anchor)
+
+        add_pie_chart("Predicted Unit Sales Share", 4, "A1")
+        add_pie_chart("Predicted Sales Share", 5, "J1")
+        add_pie_chart("Predicted Profit Share", 6, "A20")
+
+        workbook.save(out_path)
 
     print(f"Products : {len(active)}")
     print(f"Total    : {total:,.2f}")
@@ -186,7 +243,7 @@ def predict_next_month(df_raw: pd.DataFrame, model, meta: dict) -> dict:
     return {
         "latest_data_month":     latest_date.strftime("%B %Y"),
         "predicting_month":      next_date.strftime("%B %Y"),
-        "season":                SEASON_NAME[predict_month],
+        "season":                season_label,
         "active_products":       len(active),
         "total_predicted_sales": total,
         "predictions":           results,

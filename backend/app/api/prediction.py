@@ -62,6 +62,21 @@ def get_predictions():
     return service.read_latest_predictions()
 
 
+@router.get("/predictions/latest-file")
+def get_latest_prediction_file():
+    latest = service.get_latest_prediction_output_file()
+    if latest is None:
+        return {
+            "output_file": "",
+            "download_url": "",
+        }
+
+    return {
+        "output_file": latest.name,
+        "download_url": f"/download/{latest.name}",
+    }
+
+
 @router.get("/download/{filename}")
 def download_prediction_file(filename: str):
     path = Path(service.output_dir) / filename

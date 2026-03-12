@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import {
+  fetchLatestPredictionFile,
   fetchPredictions,
   parseApiError,
   triggerPredictionFromLatest,
@@ -32,8 +33,19 @@ export default function Prediction() {
   const loadPredictions = async () => {
     setLoading(true);
     try {
-      const response = await fetchPredictions();
-      setPredictions(response.data || []);
+      const [predictionsResponse, latestFileResponse] = await Promise.all([
+        fetchPredictions(),
+        fetchLatestPredictionFile(),
+      ]);
+
+      setPredictions(predictionsResponse.data || []);
+
+      const outputFileName = latestFileResponse.data?.output_file || "";
+      const relativeDownloadUrl =
+        latestFileResponse.data?.download_url ||
+        (outputFileName ? `/download/${encodeURIComponent(outputFileName)}` : "");
+      const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      setDownloadUrl(relativeDownloadUrl ? `${apiBase}${relativeDownloadUrl}` : "");
     } catch (error) {
       setMessage(parseApiError(error, "Failed to load prediction data."));
     } finally {

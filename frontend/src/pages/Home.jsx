@@ -70,7 +70,11 @@ export default function Home() {
     try {
       const response = await uploadSalesFile(inputFile);
       const rows = response.data?.sales_rows_inserted ?? 0;
-      setUploadMessage(`Input file uploaded successfully. ${rows} rows added.`);
+      const apiMessage = response.data?.message;
+      setUploadMessage(apiMessage || `Input file uploaded successfully. ${rows} rows added.`);
+      if (response.data?.overview) {
+        setOverview(response.data.overview);
+      }
       await loadOverview();
     } catch (requestError) {
       setUploadMessage(parseApiError(requestError, "Failed to upload input file."));
