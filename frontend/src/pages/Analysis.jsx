@@ -24,6 +24,11 @@ const currencyFmt = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
+const compactNumberFmt = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
 const VISUALIZATION_TYPES = [
   { id: "line", name: "Line Chart", icon: "📈", desc: "Show trends over time" },
   { id: "bar", name: "Column Chart", icon: "📊", desc: "Vertical bars for comparison" },
@@ -114,7 +119,7 @@ export default function Analysis() {
 
     const commonProps = {
       data: chartData,
-      margin: { top: 5, right: 30, left: 0, bottom: 50 },
+      margin: { top: 5, right: 30, left: 24, bottom: 50 },
     };
 
     switch (chart.type) {
@@ -123,8 +128,13 @@ export default function Analysis() {
           <ResponsiveContainer width="100%" height="100%">
             <LineChart {...commonProps}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e0e7ff" />
-              <XAxis dataKey="month" stroke="#64748b" style={{ fontSize: "12px" }} />
-              <YAxis stroke="#64748b" style={{ fontSize: "12px" }} />
+              <XAxis dataKey={categoryKey} angle={-18} textAnchor="end" height={80} stroke="#64748b" style={{ fontSize: "11px" }} />
+              <YAxis
+                stroke="#64748b"
+                width={72}
+                tickFormatter={(value) => compactNumberFmt.format(Number(value || 0))}
+                style={{ fontSize: "12px" }}
+              />
               <Tooltip
                 formatter={(value) => currencyFmt.format(value)}
                 contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #0891b2", borderRadius: "8px", color: "#fff" }}
@@ -157,8 +167,14 @@ export default function Analysis() {
       case "pie":
       case "donut":
         const pieData = (chartData || []).map((item, index) => ({
-          name: item.segment || item.discount_band || item.product || "Unknown",
-          value: Number(item.sales || 0),
+          name:
+            (item[categoryKey] != null && String(item[categoryKey]).trim()) ||
+            (item.month != null && String(item.month).trim()) ||
+            (item.segment != null && String(item.segment).trim()) ||
+            (item.discount_band != null && String(item.discount_band).trim()) ||
+            (item.product != null && String(item.product).trim()) ||
+            `Item ${index + 1}`,
+          value: Number(item.sales ?? item.profit ?? item.units_sold ?? item.value ?? 0),
           color: palette[index % palette.length],
         }));
         return (
