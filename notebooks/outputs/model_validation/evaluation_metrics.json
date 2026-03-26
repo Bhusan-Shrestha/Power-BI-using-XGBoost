@@ -1,0 +1,45 @@
+{
+  "regression": {
+    "priority": "quantity_accuracy",
+    "objective": "reg:tweedie",
+    "variance_power": 1.7,
+    "mae": 3.8225,
+    "rmse": 4.8196,
+    "r2": 0.024045,
+    "train_rmse": 4.1046,
+    "test_rmse": 4.8196,
+    "rmse_gap": 0.7149,
+    "best_candidate": 3,
+    "best_valid_rmse": 4.250036,
+    "best_valid_mae": 3.353325,
+    "peak_threshold": 8.0,
+    "peak_boost": 1.8,
+    "final_rounds": 350
+  },
+  "classification": {
+    "priority": "fewer_false_alarms",
+    "threshold_criterion": "maximize_f0.5_with_recall_floor_0.20",
+    "demand_threshold": 8.0,
+    "best_decision_threshold": 0.55,
+    "accuracy": 0.529637,
+    "f1": 0.569769,
+    "f0_5": 0.507459,
+    "precision": 0.472976,
+    "recall": 0.716372,
+    "logloss": 0.723385,
+    "avg_precision": 0.493971,
+    "train_logloss": 0.660144,
+    "test_logloss": 0.723385,
+    "logloss_gap": 0.06324,
+    "best_candidate": 1,
+    "best_valid_f0_5": 0.404811,
+    "best_valid_precision": 0.416974,
+    "best_valid_recall": 0.362511,
+    "final_rounds": 300
+  },
+  "split": {
+    "train_rows": 35268,
+    "valid_rows": 7558,
+    "test_rows": 7558
+  }
+}
